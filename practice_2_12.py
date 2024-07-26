@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS tbl_drones (
     max_speed INTEGER,
     max_flight_time INTEGER,
     serial_number TEXT UNIQUE NOT NULL,
-    payload INTEGER
+    payload INTEGER,
     model TEXT UNIQUE NOT NULL,
     manufacturer TEXT UNIQUE NOT NULL,
     purchase_date DATE,
@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS tbl_operators (
     comment TEXT
 )
 """)
+
 
 connection.commit()
 connection.close()
