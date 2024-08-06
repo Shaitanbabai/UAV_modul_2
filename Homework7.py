@@ -41,6 +41,12 @@ class MySQLFactory(DBFactory):
     def create_query_builder(self):
         return QueryBuilder()
 
+    def execute_query(self, connection, query):
+        cursor = self.create_cursor(connection)
+        cursor.execute(query)
+        connection.commit()
+        return cursor
+
 
 # Реализация фабрики для PostgresSQL
 class PostgresFactory(DBFactory):
@@ -53,22 +59,32 @@ class PostgresFactory(DBFactory):
         )
 
     def create_cursor(self, connection):
-        return connection.cursor()
+        return connection.cursor(cursor_factory=psycopg2.extras.DictCursor)  # DictCursor для удобного маппинга
 
     def create_query_builder(self):
         return QueryBuilder()
+
+    def execute_query(self, connection, query):
+        cursor = self.create_cursor(connection)
+        cursor.execute(query)
+        connection.commit()
+        return cursor
 
 
 # Реализация фабрики для SQLite
 class SQLiteFactory(DBFactory):
-    def create_connection(self):
-        return sqlite3.connect("your_database.db")
-
     def create_cursor(self, connection):
+        connection.row_factory = sqlite3.Row  # Используем sqlite3.Row для удобного маппинга
         return connection.cursor()
 
     def create_query_builder(self):
         return QueryBuilder()
+
+    def execute_query(self, connection, query):
+        cursor = self.create_cursor(connection)
+        cursor.execute(query)
+        connection.commit()
+        return cursor
 
 
 # Реализация паттерна Строитель для поэтапного построения SQL-запросов.
@@ -131,45 +147,69 @@ class User:
         return f"User(id={self.id}, name='{self.name}', email='{self.email}')"
 
 
+# Метод для выполнения SQL-запросов в фабрики
+class UserMapper:
+    @staticmethod
+    def to_sql(user):
+        return f"INSERT INTO users (id, name, email) VALUES ({user.user_id}, '{user.name}', '{user.email}')"
+
+    @staticmethod
+    def from_sql(row):
+        return User(row['id'], row['name'], row['email'])
+
+
 def main():
     # Использование MySQLFactory
     mysql_factory = MySQLFactory()
     mysql_connection = mysql_factory.create_connection()
-    mysql_cursor = mysql_factory.create_cursor(mysql_connection)
     mysql_query_builder = mysql_factory.create_query_builder()
 
-    query = mysql_query_builder.select("your_table", ["*"]).get_query()
-    mysql_cursor.execute(query)
-    print("MySQL query result:", mysql_cursor.fetchone())
+    user = User(1, 'John Doe', 'john.doe@example.com')
+    insert_query = UserMapper.to_sql(user)
 
-    mysql_cursor.close()
+    mysql_factory.execute_query(mysql_connection, insert_query)
+
+    select_query = mysql_query_builder.select("users", ["*"]).where("id = 1").get_query()
+    cursor = mysql_factory.execute_query(mysql_connection, select_query)
+    row = cursor.fetchone()
+    fetched_user = UserMapper.from_sql(row)
+    print(f"Fetched MySQL User: {fetched_user.name}, {fetched_user.email}")
+
     mysql_connection.close()
 
     # Использование PostgresFactory
     postgres_factory = PostgresFactory()
     postgres_connection = postgres_factory.create_connection()
-    postgres_cursor = postgres_factory.create_cursor(postgres_connection)
     postgres_query_builder = postgres_factory.create_query_builder()
 
-    query = postgres_query_builder.select("your_table", ["*"]).get_query()
-    postgres_cursor.execute(query)
-    print("PostgresSQL query result:", postgres_cursor.fetchone())
+    user = User(1, 'John Doe', 'john.doe@example.com')
+    insert_query = UserMapper.to_sql(user)
 
-    postgres_cursor.close()
+    postgres_factory.execute_query(postgres_connection, insert_query)
+
+    select_query = postgres_query_builder.select("users", ["*"]).where("id = 1").get_query()
+    cursor = postgres_factory.execute_query(postgres_connection, select_query)
+    row = cursor.fetchone()
+    fetched_user = UserMapper.from_sql(row)
+    print(f"Fetched Postgres User: {fetched_user.name}, {fetched_user.email}")
+
     postgres_connection.close()
 
     # Использование SQLiteFactory
     sqlite_factory = SQLiteFactory()
     sqlite_connection = sqlite_factory.create_connection()
-    sqlite_cursor = sqlite_factory.create_cursor(sqlite_connection)
     sqlite_query_builder = sqlite_factory.create_query_builder()
 
-    query = sqlite_query_builder.select("your_table", ["*"]).get_query()
-    sqlite_cursor.execute(query)
-    print("SQLite query result:", sqlite_cursor.fetchone())
+    user = User(1, 'John Doe', 'john.doe@example.com')
+    insert_query = UserMapper.to_sql(user)
 
-    sqlite_cursor.close()
-    sqlite_connection.close()
+    sqlite_factory.execute_query(sqlite_connection, insert_query)
+
+    select_query = sqlite_query_builder.select("users", ["*"]).where("id = 1").get_query()
+    cursor = sqlite_factory.execute_query(sqlite_connection, select_query)
+    row = cursor.fetchone()
+    fetched_user = UserMapper.from_sql(row)
+    print(f"Fetched SQLite User: {fetched_user.name}, {fetched_user.email}")
 
 
 if __name__ == "__main__":
