@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 import mysql.connector  # Импорт библиотек MySQL
-from mysql.connector import connection
+# from mysql.connector import connection
 import psycopg2  # импорт библиотек PostgresSQL
-from psycopg2 import connect
+# from psycopg2 import connect
 import sqlite3  # Импорт библиотек SQLite
 
 
