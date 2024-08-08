@@ -255,12 +255,19 @@ def create_tables(factory):
 
 # Создает таблицы, затем создает `DroneMapper` и ищет дрона с ID 1.
 def main():
-    # Выбор фабрики базы данных
-    factory = SQLiteFactory()
-    create_tables(factory)
+    db_factories = {
+        "sqlite": SQLiteFactory(),
+        "mysql": MySQLFactory(),
+        "postgresql": PostgreSQLFactory()
+    }
 
-    drone_mapper = DroneMapper(factory)
+    # Выбор базы данных
+    db_type = "sqlite"  # Можно изменить на "mysql" или "postgresql"
+    db_factory = db_factories[db_type]
 
+    create_tables(db_factory)
+    drone_mapper = DroneMapper(db_factory)
+    
     drones = [
         Drone(None, "DJI", "Mavic Pro", "3830 mAh"),
         Drone(None, "Rafael", "Harop", "12000 mAh"),
