@@ -1,8 +1,6 @@
 import abc
 import sqlite3
 import logging
-import mysql.connector
-import psycopg2
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -53,74 +51,6 @@ class SQLiteFactory(AbstractFactory):
             raise
 
 
-class MySQLFactory(AbstractFactory):
-    def create_connection(self):
-        try:
-            connection = mysql.connector.connect(
-                host="localhost",
-                user="MySQL_username",
-                password="MySQL_password",
-                database="MySQL_db",
-                port=3306  # MySQL стандартный порт
-            )
-            logger.info("MySQL connection established.")
-            return connection
-        except mysql.connector.Error as e:
-            logger.error(f"Error connecting to MySQL: {e}")
-            raise
-
-    def create_query_builder(self):
-        return QueryBuilder("mysql")
-
-    def execute_query(self, connection, query, params=None):
-        cursor = connection.cursor(dictionary=True)
-        try:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            connection.commit()
-            logger.info(f"MySQL query executed: {query}")
-            return cursor
-        except mysql.connector.Error as e:
-            logger.error(f"Error executing MySQL query: {e}")
-            raise
-
-
-class PostgreSQLFactory(AbstractFactory):
-    def create_connection(self):
-        try:
-            connection = psycopg2.connect(
-                host="localhost",
-                user="PostgreSQL_username",
-                password="PostgreSQL_password",
-                database="PostgreSQL_db",
-                port=5432  # PostgreSQL стандартный порт
-            )
-            logger.info("PostgreSQL connection established.")
-            return connection
-        except psycopg2.Error as e:
-            logger.error(f"Error connecting to PostgreSQL: {e}")
-            raise
-
-    def create_query_builder(self):
-        return QueryBuilder("postgresql")
-
-    def execute_query(self, connection, query, params=None):
-        cursor = connection.cursor()
-        try:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            connection.commit()
-            logger.info(f"PostgreSQL query executed: {query}")
-            return cursor
-        except psycopg2.Error as e:
-            logger.error(f"Error executing PostgreSQL query: {e}")
-            raise
-
-
 # Строитель для SQL-запросов
 class QueryBuilder:
     def __init__(self, db_type):
@@ -167,60 +97,52 @@ class Drone:
 class DroneMapper:
     def __init__(self, factory):
         self.factory = factory
+        self.connection = self.factory.create_connection()
 
     def find_by_id(self, drone_id):
-        with DBConnectionManager(self.factory) as connection:
-            try:
-                query_builder = self.factory.create_query_builder()
-                query = query_builder.select("drones", ["id", "manufacturer", "model", "battery_capacity"]) \
-                    .where("id = ?") \
-                    .get_query()
-                cursor = self.factory.execute_query(connection, query, (drone_id,))
-                result = cursor.fetchone()
-                cursor.close()
-                if result:
-                    return Drone(result["id"], result["manufacturer"], result["model"], result["battery_capacity"])
-                else:
-                    logger.info(f"Drone with ID {drone_id} not found.")
-            except Exception as e:
-                logger.error(f"Error finding drone by ID {drone_id}: {str(e)}")
-                raise
-            return None
+        query_builder = self.factory.create_query_builder()
+        query = query_builder.select("drones", ["id", "manufacturer", "model", "battery_capacity"]) \
+            .where(f"id = ?") \
+            .get_query()
+        cursor = self.factory.execute_query(self.connection, query, (drone_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        if result:
+            drone = Drone(result["id"], result["manufacturer"], result["model"], result["battery_capacity"])
+            return drone
+        return None
 
     def insert_drone(self, drone):
-        with DBConnectionManager(self.factory) as connection:
-            try:
-                # Проверка на существование записи
-                if self._drone_exists(connection, drone):
-                    logger.info(f"Drone {drone.manufacturer} {drone.model} already exists in database.")
-                else:
-                    # Вставка новой записи
-                    query_builder = self.factory.create_query_builder()
-                    query = query_builder.insert("drones", ["manufacturer", "model", "battery_capacity"]).get_query()
-                    self.factory.execute_query(connection, query,
-                                               (drone.manufacturer, drone.model, drone.battery_capacity))
-                    logger.info(f"Drone {drone.manufacturer} {drone.model} inserted into database.")
-            except Exception as e:
-                logger.error(f"Error inserting drone {drone.manufacturer} {drone.model}: {str(e)}")
-                raise
-
-    def _drone_exists(self, connection, drone):
+        # Проверка на существование записи
         query_builder = self.factory.create_query_builder()
         check_query = query_builder.select("drones", ["id"]) \
             .where("manufacturer = ? AND model = ? AND battery_capacity = ?") \
             .get_query()
-        cursor = self.factory.execute_query(connection, check_query,
+        cursor = self.factory.execute_query(self.connection, check_query,
                                             (drone.manufacturer, drone.model, drone.battery_capacity))
         result = cursor.fetchone()
         cursor.close()
-        return result is not None
+
+        if result:
+            logger.info(f"Drone {drone.manufacturer} {drone.model} already exists in database.")
+        else:
+            # Вставка новой записи
+            query_builder = self.factory.create_query_builder()
+            query = query_builder.insert("drones", ["manufacturer", "model", "battery_capacity"]).get_query()
+            self.factory.execute_query(self.connection, query,
+                                       (drone.manufacturer, drone.model, drone.battery_capacity))
+            logger.info(f"Drone {drone.manufacturer} {drone.model} inserted into database.")
+
+    def __del__(self):
+        if self.connection:
+            self.connection.close()
+            logger.info(f"Connection closed for {type(self.factory).__name__}.")
 
 
-# Контекстный менеджер для управления соединениями с базой данных
+# Контекстный менеджер для управления соединениями с базо данных
 class DBConnectionManager:
     def __init__(self, factory):
         self.factory = factory
-        self.connection = None
 
     def __enter__(self):
         self.connection = self.factory.create_connection()
@@ -244,9 +166,7 @@ def create_tables(factory):
     """
     with DBConnectionManager(factory) as connection:
         try:
-            cursor = connection.cursor()
-            cursor.execute(create_table_query)
-            connection.commit()
+            cursor = factory.execute_query(connection, create_table_query)
             cursor.close()
             logger.info(f"Table 'drones' created or already exists in {type(factory).__name__} database.")
         except Exception as e:
@@ -255,7 +175,6 @@ def create_tables(factory):
 
 # Создает таблицы, затем создает `DroneMapper` и ищет дрона с ID 1.
 def main():
-    # Выбор фабрики базы данных
     factory = SQLiteFactory()
     create_tables(factory)
 
