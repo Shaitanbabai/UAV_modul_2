@@ -6,8 +6,10 @@ import time
 SECRET_KEY_PART_1 = "myKEY"
 SECRET_KEY_PART_2 = "-111"
 
+
 def get_secret_key():
     return SECRET_KEY_PART_1 + SECRET_KEY_PART_2
+
 
 class Drone:
     def fly(self):
